@@ -1,8 +1,0 @@
-Flask==2.3.2
-Flask-Cors==4.0.0
-pandas
-numpy
-ta
-xgboost
-scikit-learn
-yfinance
