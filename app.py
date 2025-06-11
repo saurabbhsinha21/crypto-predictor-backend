@@ -2,55 +2,82 @@ from flask import Flask, request, jsonify
 from flask_cors import CORS
 from datetime import datetime
 from dateutil import parser
-import traceback
 import requests
+import pandas as pd
+import xgboost as xgb
+import os
 
 app = Flask(__name__)
 CORS(app)
 
-def get_latest_price(pair):
-    # Example using CoinGecko for simplicity
-    url = "https://api.coingecko.com/api/v3/simple/price"
-    params = {
-        "ids": "bitcoin" if pair == "BTC/USDT" else "ethereum",
-        "vs_currencies": "usd"
-    }
-    try:
-        response = requests.get(url, params=params)
-        response.raise_for_status()
-        data = response.json()
-        return float(data["bitcoin"]["usd"] if pair == "BTC/USDT" else data["ethereum"]["usd"])
-    except Exception as e:
-        print("Error fetching latest price:", e)
-        return None
+# Load model
+MODEL_PATH = "model_xgb.json"
+if not os.path.exists(MODEL_PATH):
+    raise FileNotFoundError("Trained model not found.")
+
+model = xgb.XGBClassifier()
+model.load_model(MODEL_PATH)
+
+# Mapping for CoinGecko
+COIN_ID_MAP = {
+    "BTC/USDT": "bitcoin",
+    "ETH/USDT": "ethereum"
+}
+
+def fetch_current_price(pair):
+    if pair not in COIN_ID_MAP:
+        raise Exception("Unsupported pair")
+
+    coin_id = COIN_ID_MAP[pair]
+    url = f"https://api.coingecko.com/api/v3/simple/price?ids={coin_id}&vs_currencies=usd"
+    response = requests.get(url)
+
+    if response.status_code != 200:
+        raise Exception("Failed to retrieve price from CoinGecko")
+
+    data = response.json()
+    return data[coin_id]["usd"]
 
 def make_prediction(pair, target_price, target_time):
-    current_price = get_latest_price(pair)
-    if current_price is None:
-        raise Exception("Failed to retrieve current price")
-    print(f"Current price of {pair}: {current_price}, Target: {target_price}")
-    return 'above' if current_price < target_price else 'below'
+    current_price = fetch_current_price(pair)
 
-@app.route('/predict', methods=['POST'])
+    current_time = datetime.utcnow()
+    target_time_dt = parser.parse(target_time)
+    minutes_to_target = (target_time_dt - current_time).total_seconds() / 60.0
+
+    if minutes_to_target < 1:
+        raise Exception("Target time must be in the future")
+
+    df = pd.DataFrame([{
+        "current_price": current_price,
+        "target_price": float(target_price),
+        "minutes_to_target": minutes_to_target
+    }])
+
+    prediction = model.predict(df)[0]
+    return "Above" if prediction == 1 else "Below"
+
+@app.route("/predict", methods=["POST"])
 def predict():
     try:
-        data = request.get_json()
-        print("Received data:", data)
-        pair = data['pair']
-        target_price = float(data['target_price'])
-        target_time_str = data['target_time']
-        target_time = parser.parse(target_time_str)
+        data = request.json
+        pair = data.get("pair")
+        target_price = data.get("target_price")
+        target_time = data.get("target_time")
+
+        if not (pair and target_price and target_time):
+            return jsonify({"error": "Missing required fields"}), 400
+
         prediction = make_prediction(pair, target_price, target_time)
-        print("Prediction result:", prediction)
-        return jsonify({'prediction': prediction})
+        return jsonify({"prediction": prediction})
+
     except Exception as e:
-        print("Error during prediction:", str(e))
-        traceback.print_exc()
-        return jsonify({'error': 'Prediction failed'}), 500
+        print(f"Error during prediction: {e}")
+        return jsonify({"error": "Prediction failed"}), 500
 
-@app.route('/', methods=['GET'])
-def home():
-    return "Crypto Predictor Backend Running"
+@app.route("/")
+def index():
+    return "Crypto Price Predictor API"
 
-if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=10000)
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=10000)
