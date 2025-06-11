@@ -1,4 +1,8 @@
 flask
 flask-cors
-python-dateutil
 requests
+scikit-learn
+pandas
+numpy
+xgboost
+ta
