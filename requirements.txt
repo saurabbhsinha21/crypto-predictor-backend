@@ -1,7 +1,0 @@
-Flask
-flask-cors
-requests
-numpy
-pandas
-xgboost
-ta
