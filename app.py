@@ -1,27 +1,30 @@
 from flask import Flask, request, jsonify
 from flask_cors import CORS
-from datetime import datetime
 import requests
-import numpy as np
-import pandas as pd
-import xgboost as xgb
-import ta
 
 app = Flask(__name__)
 CORS(app)
 
 def get_current_price(pair):
     try:
-        symbol = pair.split("/")[0].lower()
-        url = f"https://api.coingecko.com/api/v3/simple/price?ids={symbol}&vs_currencies=usd"
+        pair = pair.upper()
+        if pair == "BTC/USDT":
+            coin_id = "bitcoin"
+        elif pair == "ETH/USDT":
+            coin_id = "ethereum"
+        else:
+            raise Exception("Unsupported pair")
+
+        url = f"https://api.coingecko.com/api/v3/simple/price?ids={coin_id}&vs_currencies=usd"
         res = requests.get(url).json()
-        return float(res[symbol]["usd"])
-    except Exception:
+        return float(res[coin_id]["usd"])
+    except Exception as e:
+        print("Error fetching price:", e)
         raise Exception("Failed to retrieve current price")
 
 def make_prediction(pair, target_price, target_time):
-    # Placeholder: Replace with real historical data fetching + indicators
     current_price = get_current_price(pair)
+    print(f"DEBUG: Current price for {pair}: {current_price}, Target price: {target_price}")
     
     if current_price > float(target_price):
         return "Below"
